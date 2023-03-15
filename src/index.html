@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Greatest Rust App</title>
+
+    <link rel="preconnect" href="https://rsms.me/" />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+      :root {
+        font-family: "Inter", sans-serif;
+      }
+      @supports (font-variation-settings: normal) {
+        :root {
+          font-family: "Inter var", sans-serif;
+        }
+      }
+
+      html,
+      body,
+      #root {
+        background-color: #111111;
+        width: 100%;
+        height: 100%;
+
+        color: white;
+      }
+
+      button {
+        all: unset;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        padding-left: 34px;
+        padding-right: 34px;
+        background-color: white;
+        color: black;
+        border-radius: 8px;
+      }
+
+      button:hover {
+        box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <noscript>You must enable JavaScript to run this app.</noscript>
+
+    <div id="root"></div>
+
+    <script nomodule>
+      document.getElementById("root").innerHTML =
+        "<h1>Your browser does not support ES Modules.</h1>";
+    </script>
+
+    <script type="module">
+      import {
+        createSignal,
+        onCleanup,
+        For,
+      } from "https://cdn.skypack.dev/solid-js";
+      import { render } from "https://cdn.skypack.dev/solid-js/web";
+      import createWebsocket from "https://cdn.skypack.dev/@solid-primitives/websocket";
+      import html from "https://cdn.skypack.dev/solid-js/html";
+
+      const App = () => {
+        const [myId, setMyId] = createSignal(null);
+        const [currentMousePos, setCurrentMousePos] = createSignal([0, 0]);
+        const [lastSentMousePos, setLastSentMousePos] = createSignal([0, 0]);
+
+        // key => id , value => { cursor => [x,y]}
+        const [currentUsersState, setCurrentUsersState] = createSignal({});
+        const [connect, disconnect, send, state] = createWebsocket(
+          window.location.protocol.replace("http", "ws") +
+            "//" +
+            location.host +
+            "/ws",
+          (d) => {
+            const json = JSON.parse(d.data);
+
+            if ("op" in json && "d" in json) {
+              switch (json.op) {
+                case "identify": {
+                  const { id } = json.d;
+
+                  setMyId(() => id);
+                  console.log(`Got my Id from server: ${id}`);
+                  break;
+                }
+                case "updateCursors": {
+                  setCurrentUsersState(json.d);
+                  console.log(currentUsersState());
+                  break;
+                }
+              }
+            }
+          },
+          (err) => {
+            console.log("websocket err", err);
+          },
+          [],
+          2,
+          5000
+        );
+
+        const sendInterval = setInterval(() => {
+          if (state() !== WebSocket.OPEN) {
+            return;
+          }
+
+          const curr = currentMousePos();
+          const ls = lastSentMousePos();
+
+          if (curr === ls) {
+            return;
+          }
+          setLastSentMousePos(currentMousePos());
+
+          send(
+            JSON.stringify({
+              op: "updateMyCursor",
+              d: curr,
+            })
+          );
+        }, 1000 / 60);
+
+        connect();
+
+        /**
+         * @param {MouseEvent} e
+         */
+        const handleMouseMove = (e) => {
+          setCurrentMousePos([e.x, e.y]);
+        };
+
+        window.addEventListener("mousemove", handleMouseMove);
+
+        onCleanup(() => {
+          window.removeEventListener("mousemove", handleMouseMove);
+          clearInterval(sendInterval);
+        });
+
+        return html`
+          <div>
+            <p class="text-bold text-xl">WebSocket State: ${() =>
+              state()} - Users Connected: ${() =>
+          Object.keys(currentUsersState()).length}</p>
+            <p class="text-bold text-xl">Your Id: ${() => myId()}</p>
+          </div>
+        <div class="fixed top-0 left-0 overflow-hidden w-screen h-screen">
+          <${For} each=${() => Object.entries(currentUsersState())}
+            >${([id, { cursor }], idx) => {
+              return html`
+                <div
+                  class="absolute w-2 h-5 bg-pink-500 rounded-lg pointer-events-none z-10 transition-transform duration-[16ms] -rotate-45"
+                  style=${() => ({
+                    // transform: `translate3d(${cursor[0]}px, ${cursor[1]}px, 0)`,
+                    left: cursor[0] + "px",
+                    top: cursor[1] + "px",
+                  })}
+                />
+              `;
+            }}</${For}
+          </div>
+        `;
+      };
+      render(App, document.getElementById("root"));
+    </script>
+  </body>
+</html>
